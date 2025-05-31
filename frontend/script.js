@@ -1,25 +1,189 @@
+// Utility functions for loading states
+function setLoading(element, isLoading) {
+    if (isLoading) {
+        element.classList.add('loading');
+        if (element.tagName === 'BUTTON') {
+            element.classList.add('btn-loading');
+            element.disabled = true;
+        }
+    } else {
+        element.classList.remove('loading');
+        if (element.tagName === 'BUTTON') {
+            element.classList.remove('btn-loading');
+            element.disabled = false;
+        }
+    }
+}
+
+// Utility functions for notifications
+function showNotification(message, type = 'error') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.textContent = message;
+    document.body.appendChild(alertDiv);
+
+    // Remove the notification after 5 seconds
+    setTimeout(() => {
+        alertDiv.classList.add('hide');
+        setTimeout(() => alertDiv.remove(), 300);
+    }, 5000);
+}
+
+// Utility function for API calls
+async function apiCall(endpoint, options = {}) {
+    const token = localStorage.getItem("authToken");
+    const defaultHeaders = {
+        "Content-Type": "application/json",
+        ...(token && { "Authorization": `Bearer ${token}` })
+    };
+
+    try {
+        const response = await fetch(`http://localhost:5000${endpoint}`, {
+            ...options,
+            headers: { ...defaultHeaders, ...options.headers }
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || "Something went wrong");
+        }
+        
+        return data;
+    } catch (error) {
+        showNotification(error.message);
+        throw error;
+    }
+}
+
+// Validation utility functions
+function validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+}
+
+function validatePassword(password) {
+    // At least 8 characters, 1 uppercase, 1 lowercase, 1 number
+    const re = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/;
+    return re.test(password);
+}
+
+function validateURL(url) {
+    try {
+        new URL(url);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function validateField(field, value) {
+    const feedback = field.nextElementSibling;
+    let isValid = true;
+    let message = '';
+
+    switch (field.name) {
+        case 'username':
+            if (value.length < 3) {
+                isValid = false;
+                message = 'Username must be at least 3 characters long';
+            }
+            break;
+        case 'email':
+            if (!validateEmail(value)) {
+                isValid = false;
+                message = 'Please enter a valid email address';
+            }
+            break;
+        case 'password':
+            if (!validatePassword(value)) {
+                isValid = false;
+                message = 'Password must be at least 8 characters long and contain uppercase, lowercase, and numbers';
+            }
+            break;
+        case 'title':
+            if (value.length < 1) {
+                isValid = false;
+                message = 'Title is required';
+            }
+            break;
+        case 'url':
+            if (!validateURL(value)) {
+                isValid = false;
+                message = 'Please enter a valid URL';
+            }
+            break;
+    }
+
+    field.classList.toggle('is-invalid', !isValid);
+    field.classList.toggle('is-valid', isValid);
+    if (feedback && feedback.classList.contains('invalid-feedback')) {
+        feedback.textContent = message;
+    }
+
+    return isValid;
+}
+
+// Add validation to all forms
+document.addEventListener('DOMContentLoaded', () => {
+    // Add validation feedback elements to all form inputs
+    document.querySelectorAll('form input').forEach(input => {
+        if (!input.nextElementSibling?.classList.contains('invalid-feedback')) {
+            const feedback = document.createElement('div');
+            feedback.className = 'invalid-feedback';
+            input.parentNode.insertBefore(feedback, input.nextSibling);
+        }
+    });
+
+    // Add input event listeners for real-time validation
+    document.querySelectorAll('form input').forEach(input => {
+        input.addEventListener('input', (e) => {
+            validateField(e.target, e.target.value);
+        });
+    });
+});
+
 // Signup form
 const signupForm = document.getElementById("signup-form");
 if (signupForm) {
     signupForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        alert("Signup function triggered!");
         
-        const username = event.target.elements[0].value;
-        const email = event.target.elements[1].value;
-        const password = event.target.elements[2].value;
+        // Validate all fields
+        const username = event.target.elements[0];
+        const email = event.target.elements[1];
+        const password = event.target.elements[2];
+        
+        const isUsernameValid = validateField(username, username.value);
+        const isEmailValid = validateField(email, email.value);
+        const isPasswordValid = validateField(password, password.value);
+        
+        if (!isUsernameValid || !isEmailValid || !isPasswordValid) {
+            showNotification('Please fix the validation errors', 'error');
+            return;
+        }
 
+        const submitButton = event.target.querySelector('button[type="submit"]');
+        setLoading(submitButton, true);
+        
         try {
-            const response = await fetch("http://localhost:5000/signup", {
+            const data = await apiCall('/signup', {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, email, password }),
+                body: JSON.stringify({ 
+                    username: username.value, 
+                    email: email.value, 
+                    password: password.value 
+                })
             });
-            const data = await response.json();
-            alert(data.message);
-            window.location.href = "login.html";
+            
+            showNotification(data.message, 'success');
+            setTimeout(() => {
+                window.location.href = "login.html";
+            }, 1000);
         } catch (err) {
-            alert("Signup failed. Please try again.");
+            // Error is already handled by apiCall
+        } finally {
+            setLoading(submitButton, false);
         }
     });
 }
@@ -29,25 +193,40 @@ const loginForm = document.getElementById("login-form");
 if (loginForm) {
     loginForm.addEventListener("submit", async (event) => {
         event.preventDefault();
+        
+        // Validate all fields
+        const email = event.target.elements[0];
+        const password = event.target.elements[1];
+        
+        const isEmailValid = validateField(email, email.value);
+        const isPasswordValid = validateField(password, password.value);
+        
+        if (!isEmailValid || !isPasswordValid) {
+            showNotification('Please fix the validation errors', 'error');
+            return;
+        }
 
-        const email = event.target.elements[0].value;
-        const password = event.target.elements[1].value;
+        const submitButton = event.target.querySelector('button[type="submit"]');
+        setLoading(submitButton, true);
 
         try {
-            const response = await fetch("http://localhost:5000/login", {
+            const data = await apiCall('/login', {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ 
+                    email: email.value, 
+                    password: password.value 
+                })
             });
-            const data = await response.json();
-            if (data.token) {
-                localStorage.setItem("authToken", data.token);
+            
+            localStorage.setItem("authToken", data.token);
+            showNotification("Login successful!", 'success');
+            setTimeout(() => {
                 window.location.href = "dashboard.html";
-            } else {
-                alert("Invalid credentials!");
-            }
+            }, 1000);
         } catch (err) {
-            alert("Login failed. Please try again.");
+            // Error is already handled by apiCall
+        } finally {
+            setLoading(submitButton, false);
         }
     });
 }
@@ -58,18 +237,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (usernameElem) {
         const token = localStorage.getItem("authToken");
         if (!token) {
-            window.location.href = "login.html";
+            showNotification("Please login to access this page", 'warning');
+            setTimeout(() => {
+                window.location.href = "login.html";
+            }, 1000);
             return;
         }
+        setLoading(usernameElem, true);
         try {
-            const response = await fetch("http://localhost:5000/user", {
-                method: "GET",
-                headers: { "Authorization": `Bearer ${token}` },
+            const data = await apiCall('/user', {
+                method: "GET"
             });
-            const data = await response.json();
             usernameElem.innerText = data.username;
         } catch (err) {
-            window.location.href = "login.html";
+            // Error is already handled by apiCall
+            setTimeout(() => {
+                window.location.href = "login.html";
+            }, 1000);
+        } finally {
+            setLoading(usernameElem, false);
         }
     }
 });
@@ -79,20 +265,41 @@ const linkForm = document.getElementById("link-form");
 if (linkForm) {
     linkForm.addEventListener("submit", async (event) => {
         event.preventDefault();
+        
+        // Validate all fields
+        const title = event.target.elements[0];
+        const url = event.target.elements[1];
+        
+        const isTitleValid = validateField(title, title.value);
+        const isUrlValid = validateField(url, url.value);
+        
+        if (!isTitleValid || !isUrlValid) {
+            showNotification('Please fix the validation errors', 'error');
+            return;
+        }
 
-        const title = event.target.elements[0].value;
-        const url = event.target.elements[1].value;
-        const token = localStorage.getItem("authToken");
+        const submitButton = event.target.querySelector('button[type="submit"]');
+        setLoading(submitButton, true);
 
         try {
-            await fetch("http://localhost:5000/add_link", {
+            await apiCall('/add_link', {
                 method: "POST",
-                headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ title, url }),
+                body: JSON.stringify({ 
+                    title: title.value, 
+                    url: url.value 
+                })
             });
-            loadLinks(); // Refresh the link list
+            
+            showNotification("Link added successfully!", 'success');
+            event.target.reset();
+            // Reset validation states
+            title.classList.remove('is-valid');
+            url.classList.remove('is-valid');
+            loadLinks();
         } catch (err) {
-            alert("Failed to add link.");
+            // Error is already handled by apiCall
+        } finally {
+            setLoading(submitButton, false);
         }
     });
 }
@@ -102,46 +309,61 @@ async function loadLinks() {
     const list = document.getElementById("link-list");
     if (!list) return;
 
-    const token = localStorage.getItem("authToken");
+    setLoading(list, true);
     try {
-        const response = await fetch("http://localhost:5000/user_links", {
-            method: "GET",
-            headers: { "Authorization": `Bearer ${token}` },
+        const data = await apiCall('/user_links', {
+            method: "GET"
         });
-        const data = await response.json();
+        
         list.innerHTML = "";
+        if (data.links.length === 0) {
+            list.innerHTML = "<li class='text-muted'>No links added yet. Add your first link above!</li>";
+            return;
+        }
 
         data.links.forEach((link) => {
             const li = document.createElement("li");
-            li.className = "list-group-item d-flex justify-content-between";
-            li.innerHTML = `<a href="${link.url}" target="_blank">${link.title}</a>
-                            <button class="btn btn-danger btn-sm">Delete</button>`;
-            li.querySelector("button").addEventListener("click", () => deleteLink(link.id));
+            li.className = "list-group-item d-flex justify-content-between align-items-center";
+            li.innerHTML = `
+                <a href="${link.url}" target="_blank" class="text-decoration-none">${link.title}</a>
+                <button class="btn btn-danger btn-sm delete-link" data-link-id="${link.id}">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            `;
             list.appendChild(li);
         });
+
+        // Add event listeners to delete buttons
+        document.querySelectorAll('.delete-link').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const linkId = e.target.closest('.delete-link').dataset.linkId;
+                deleteLink(linkId);
+            });
+        });
     } catch (err) {
+        // Error is already handled by apiCall
         list.innerHTML = "<li class='text-danger'>Failed to load links.</li>";
+    } finally {
+        setLoading(list, false);
     }
 }
 
-// Only call loadLinks if link-list exists
-document.addEventListener("DOMContentLoaded", () => {
-    if (document.getElementById("link-list")) {
-        loadLinks();
-    }
-});
-
 // Delete link
 async function deleteLink(linkId) {
-    const token = localStorage.getItem("authToken");
+    const button = event.target.closest('.delete-link');
+    setLoading(button, true);
+    
     try {
-        await fetch(`http://localhost:5000/delete_link/${linkId}`, {
-            method: "DELETE",
-            headers: { "Authorization": `Bearer ${token}` },
+        await apiCall(`/delete_link/${linkId}`, {
+            method: "DELETE"
         });
+        
+        showNotification("Link deleted successfully!", 'success');
         loadLinks();
     } catch (err) {
-        alert("Failed to delete link.");
+        // Error is already handled by apiCall
+    } finally {
+        setLoading(button, false);
     }
 }
 
@@ -150,6 +372,16 @@ const logoutBtn = document.getElementById("logout");
 if (logoutBtn) {
     logoutBtn.addEventListener("click", () => {
         localStorage.removeItem("authToken");
-        window.location.href = "login.html";
+        showNotification("Logged out successfully!", 'success');
+        setTimeout(() => {
+            window.location.href = "login.html";
+        }, 1000);
     });
 }
+
+// Only call loadLinks if link-list exists
+document.addEventListener("DOMContentLoaded", () => {
+    if (document.getElementById("link-list")) {
+        loadLinks();
+    }
+});
