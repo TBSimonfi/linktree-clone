@@ -1,5 +1,5 @@
 pip install flask pymongo flask-bcrypt flask-jwt-extended python-dotenv
-
+test
 python app.py
 
 backend/
